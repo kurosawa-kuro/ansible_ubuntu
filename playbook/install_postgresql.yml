@@ -1,0 +1,68 @@
+---
+- name: Install and configure PostgreSQL for development on Ubuntu 22.04
+  hosts: localhost
+  connection: local
+  become: yes
+  vars:
+    pg_version: "14"
+    pg_user: "root"
+    pg_password: "root_password"
+    pg_listen_addresses: "0.0.0.0"
+    pg_port: "5432"
+
+  tasks:
+    - name: Import PostgreSQL repository key
+      apt_key:
+        url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+        state: present
+
+    - name: Add PostgreSQL APT Repository
+      apt_repository:
+        repo: "deb http://apt.postgresql.org/pub/repos/apt/ {{ ansible_lsb.codename }}-pgdg main"
+        state: present
+
+    - name: Install necessary packages
+      apt:
+        update_cache: yes
+        name:
+          - "postgresql-{{ pg_version }}"
+          - "postgresql-client-{{ pg_version }}"
+          - "python3-psycopg2"
+        state: present
+
+    - name: Ensure PostgreSQL is running
+      service:
+        name: "postgresql"
+        state: started
+        enabled: yes
+
+    - name: Create the PostgreSQL user
+      become: yes
+      become_user: postgres
+      postgresql_user:
+        db: postgres
+        name: "{{ pg_user }}"
+        password: "{{ pg_password }}"
+        role_attr_flags: SUPERUSER,CREATEDB
+        state: present
+
+    - name: Allow external connections to PostgreSQL
+      block:
+        - lineinfile:
+            path: "/etc/postgresql/{{ pg_version }}/main/postgresql.conf"
+            regexp: "^#?listen_addresses"
+            line: "listen_addresses = '{{ pg_listen_addresses }}'"
+          notify: Restart PostgreSQL
+
+        - lineinfile:
+            path: "/etc/postgresql/{{ pg_version }}/main/pg_hba.conf"
+            line: "host all all 0.0.0.0/0 md5"
+          notify: Restart PostgreSQL
+      become: yes
+
+  handlers:
+    - name: Restart PostgreSQL
+      service:
+        name: "postgresql"
+        state: restarted
+
